@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -437,6 +436,37 @@ tbody tr:hover td{background:rgba(255,255,255,.02)}
   </div>
 </div>
 
+<!-- PAGO PARCIAL MODAL -->
+<div class="modal-overlay" id="modal-pago">
+  <div class="modal">
+    <div class="modal-title">
+      <span id="pago-modal-title">registrar pago</span>
+      <button class="modal-close" onclick="closeModal('modal-pago')">×</button>
+    </div>
+    <div style="font-size:.78rem;color:var(--text2);margin-bottom:1rem;line-height:1.7" id="pago-modal-info"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="modal-field">
+        <label>monto a registrar ($)</label>
+        <input type="number" id="pago-monto" placeholder="ej: 5000">
+      </div>
+      <div class="modal-field">
+        <label>método</label>
+        <select id="pago-metodo">
+          <option value="efectivo">efectivo</option>
+          <option value="débito">débito</option>
+          <option value="transferencia">transferencia</option>
+          <option value="mercadopago">mercadopago</option>
+          <option value="otro">otro</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-action" onclick="closeModal('modal-pago')">cancelar</button>
+      <button class="btn-action accent" id="pago-btn-confirm" onclick="confirmarPago()">confirmar</button>
+    </div>
+  </div>
+</div>
+
 <!-- SYNC MODAL -->
 <div class="modal-overlay" id="modal-sync">
   <div class="modal">
@@ -668,20 +698,62 @@ function addDeuda(){
   showToast(debtMode==='me-deben'?'deuda cargada':'deuda propia cargada');
 }
 
-function settleDeuda(id){
+let pagoDeudaId=null;
+
+function openPagoModal(id){
   const d=state.deudas.find(x=>x.id===id);
-  if(!d||d.settled)return;
-  d.settled=true;d.fechaSettle=isoToDisplay(todayISO());d.mesSettle=curMonth;d.yearSettle=curYear;
-  if(d.tipo==='me-deben'){
+  if(!d)return;
+  pagoDeudaId=id;
+  const isMeDeben=d.tipo==='me-deben';
+  const pagado=d.pagado||0;
+  const pendiente=d.monto-pagado;
+  document.getElementById('pago-modal-title').textContent=isMeDeben?'registrar cobro':'registrar pago';
+  document.getElementById('pago-modal-info').innerHTML=
+    `<b style="color:var(--text)">${d.quien}</b> — ${d.desc||''}<br>`+
+    `Total: <b style="font-family:var(--mono)">${fmt(d.monto)}</b>`+
+    (pagado>0?` · Ya ${isMeDeben?'cobrado':'pagado'}: <b style="font-family:var(--mono)">${fmt(pagado)}</b>`+` · <b style="color:${isMeDeben?'var(--teal)':'var(--danger)'}">Pendiente: ${fmt(pendiente)}</b>`:'');
+  document.getElementById('pago-monto').value=pendiente;
+  document.getElementById('pago-btn-confirm').textContent=isMeDeben?'confirmar cobro':'confirmar pago';
+  document.getElementById('pago-btn-confirm').className='btn-action '+(isMeDeben?'teal':'accent');
+  openModal('modal-pago');
+}
+
+function confirmarPago(){
+  const d=state.deudas.find(x=>x.id===pagoDeudaId);
+  if(!d)return;
+  const monto=parseFloat(document.getElementById('pago-monto').value);
+  const metodo=document.getElementById('pago-metodo').value;
+  if(!monto||monto<=0){showToast('ingresá un monto válido');return;}
+  const pendiente=d.monto-(d.pagado||0);
+  if(monto>pendiente){showToast('el monto supera lo pendiente ('+fmt(pendiente)+')');return;}
+  const isMeDeben=d.tipo==='me-deben';
+
+  // register partial payment
+  if(!d.pagos)d.pagos=[];
+  d.pagos.push({monto,metodo,fecha:todayISO()});
+  d.pagado=(d.pagado||0)+monto;
+
+  // register in gastos/ingresos
+  if(isMeDeben){
     if(!state.ingresos[key()])state.ingresos[key()]=[];
-    state.ingresos[key()].unshift({id:Date.now(),desc:'cobro: '+d.quien+(d.desc?' ('+d.desc+')':''),monto:d.monto,fecha:todayISO(),tipo:'cobro',deudaId:d.id});
-    showToast('cobrado — se sumó a tus ingresos ✓');
+    state.ingresos[key()].unshift({id:Date.now(),desc:'cobro: '+d.quien+(d.desc?' ('+d.desc+')':''),monto,fecha:todayISO(),tipo:'cobro',deudaId:d.id});
   } else {
     if(!state.gastos[key()])state.gastos[key()]=[];
-    state.gastos[key()].unshift({id:Date.now(),desc:'pago deuda: '+d.quien+(d.desc?' ('+d.desc+')':''),cat:'otro',metodo:'efectivo',monto:d.monto,fecha:todayISO(),esDeuda:true});
-    showToast('pago registrado — se descontó de tu disponible ✓');
+    state.gastos[key()].unshift({id:Date.now(),desc:'pago deuda: '+d.quien+(d.desc?' ('+d.desc+')':''),cat:'otro',metodo,monto,fecha:todayISO(),esDeuda:true});
   }
-  saveState();render();
+
+  // mark as settled if fully paid
+  if(d.pagado>=d.monto){
+    d.settled=true;
+    d.fechaSettle=isoToDisplay(todayISO());
+    d.mesSettle=curMonth;
+    d.yearSettle=curYear;
+    showToast(isMeDeben?'cobrado en su totalidad ✓':'deuda saldada por completo ✓');
+  } else {
+    showToast(isMeDeben?`cobrado ${fmt(monto)} ✓`:`pago de ${fmt(monto)} registrado ✓`);
+  }
+
+  saveState();render();closeModal('modal-pago');
 }
 
 function delDeuda(id){
@@ -864,37 +936,54 @@ function renderIngresos(){
 function renderDeudas(){
   const el=document.getElementById('deudas-list');
   const summary=document.getElementById('debt-summary');
-  if(!state.deudas.length){el.innerHTML='<div class="empty">sin deudas cargadas</div>';summary.innerHTML='';return;}
+  // only show pending debts
   const meDeben=state.deudas.filter(d=>d.tipo==='me-deben'&&!d.settled);
   const leDebo=state.deudas.filter(d=>d.tipo==='le-debo'&&!d.settled);
-  const settled=state.deudas.filter(d=>d.settled);
-  const totalMeDeben=meDeben.reduce((s,d)=>s+d.monto,0);
-  const totalLeDebo=leDebo.reduce((s,d)=>s+d.monto,0);
+  const totalMeDeben=meDeben.reduce((s,d)=>s+(d.monto-(d.pagado||0)),0);
+  const totalLeDebo=leDebo.reduce((s,d)=>s+(d.monto-(d.pagado||0)),0);
+
   summary.innerHTML=
     (totalMeDeben>0?`<span class="dpill" style="background:rgba(93,202,165,.12);color:var(--teal)">te deben ${fmt(totalMeDeben)}</span>`:'')+
     (totalLeDebo>0?`<span class="dpill" style="background:rgba(240,106,106,.12);color:var(--danger)">debés ${fmt(totalLeDebo)}</span>`:'');
+
+  if(!meDeben.length&&!leDebo.length){
+    el.innerHTML='<div class="empty">sin deudas pendientes</div>';
+    return;
+  }
+
   const renderItem=d=>{
     const isMeDeben=d.tipo==='me-deben';
-    const color=d.settled?'var(--text3)':isMeDeben?'var(--teal)':'var(--danger)';
-    const btnLabel=isMeDeben?'cobrar':'pagué';
+    const color=isMeDeben?'var(--teal)':'var(--danger)';
     const btnBg=isMeDeben?'var(--teal)':'var(--danger)';
-    const settleNote=d.settled?(isMeDeben?`cobrado ${d.fechaSettle}`:`pagado ${d.fechaSettle}`):'';
-    return `<div class="debt-item ${d.settled?'settled':d.tipo}">
+    const pagado=d.pagado||0;
+    const pendiente=d.monto-pagado;
+    const pctPagado=Math.round(pagado/d.monto*100);
+    const pagosHtml=pagado>0?`
+      <div style="margin-top:6px">
+        <div style="background:var(--bg4);border-radius:99px;height:4px;overflow:hidden;margin-bottom:3px">
+          <div style="height:4px;border-radius:99px;background:${color};width:${pctPagado}%;transition:width .4s"></div>
+        </div>
+        <div style="font-size:.65rem;color:var(--text3);font-family:var(--mono)">${fmt(pagado)} pagado · ${fmt(pendiente)} pendiente</div>
+      </div>`:'';
+    // list of partial payments
+    const histPagos=(d.pagos||[]).map(p=>`<div style="font-size:.65rem;color:var(--text3);font-family:var(--mono);margin-top:2px">${isoToDisplay(p.fecha)} · ${fmt(p.monto)} · ${p.metodo}</div>`).join('');
+    return `<div class="debt-item ${d.tipo}">
       <div class="debt-info">
-        <div class="debt-who" style="color:${color}">${d.quien} <span style="font-size:.65rem;font-weight:400;color:var(--text3)">${isMeDeben?'te debe':'le debés'}</span></div>
-        <div class="debt-subdesc">${d.desc||'—'} · <span style="font-family:var(--mono);font-size:.67rem">${d.fecha}</span>${d.settled?` · <span style="color:${color}">${settleNote}</span>`:''}</div>
+        <div class="debt-who" style="color:${color}">${d.quien} <span style="font-size:.65rem;font-weight:400;color:var(--text3)">${isMeDeben?'te debe':'le debés'}</span> <span style="font-family:var(--mono);font-size:.8rem">${fmt(d.monto)}</span></div>
+        <div class="debt-subdesc">${d.desc||'—'} · <span style="font-family:var(--mono);font-size:.67rem">${d.fecha}</span></div>
+        ${pagosHtml}
+        ${histPagos}
       </div>
-      <span class="debt-amt" style="color:${color}">${fmt(d.monto)}</span>
-      ${!d.settled
-        ?`<button class="btn-settle" style="background:${btnBg};color:${isMeDeben?'#0E0E10':'#fff'}" onclick="settleDeuda(${d.id})">${btnLabel}</button>`
-        :`<span style="font-size:.7rem;font-weight:600;color:${color}">${isMeDeben?'cobrado':'pagado'}</span>`}
-      <button class="del-btn" onclick="delDeuda(${d.id})">×</button>
+      <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;flex-shrink:0">
+        <button class="btn-settle" style="background:${btnBg};color:${isMeDeben?'#0E0E10':'#fff'}" onclick="openPagoModal(${d.id})">${isMeDeben?'cobrar':'pagar'}</button>
+        <button class="del-btn" onclick="delDeuda(${d.id})">×</button>
+      </div>
     </div>`;
   };
+
   const sections=[];
   if(meDeben.length)sections.push('<div style="font-size:.68rem;color:var(--teal);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">me deben</div>'+meDeben.map(renderItem).join(''));
   if(leDebo.length)sections.push('<div style="font-size:.68rem;color:var(--danger);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:10px 0 6px">le debo a</div>'+leDebo.map(renderItem).join(''));
-  if(settled.length)sections.push('<div style="font-size:.68rem;color:var(--text3);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:12px 0 6px">historial</div>'+settled.map(renderItem).join(''));
   el.innerHTML=sections.join('');
 }
 
