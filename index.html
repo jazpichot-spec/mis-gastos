@@ -312,9 +312,10 @@ tbody tr:hover td{background:rgba(255,255,255,.02)}
       <input class="desc-f" type="text" id="f-desc" placeholder="descripción (ej: supermercado)" onkeydown="if(event.key==='Enter')addGasto()">
       <select id="f-cat">
         <option value="comida">comida</option><option value="transporte">transporte</option>
-        <option value="casa">casa/alquiler</option><option value="servicios">servicios</option>
-        <option value="salud">salud</option><option value="ropa">ropa</option>
-        <option value="ocio">ocio</option><option value="suscripciones">suscripciones</option>
+        <option value="servicios">servicios</option><option value="salud">salud</option>
+        <option value="kiosco">kiosco</option><option value="suscripciones">suscripciones</option>
+        <option value="birra/café">birra/café</option><option value="comida fuc">comida fuc</option>
+        <option value="salidas">salidas</option><option value="educación">educación</option>
         <option value="otro">otro</option>
       </select>
       <select id="f-metodo">
@@ -411,9 +412,10 @@ tbody tr:hover td{background:rgba(255,255,255,.02)}
       <div class="modal-field"><label>categoría</label>
         <select id="edit-cat">
           <option value="comida">comida</option><option value="transporte">transporte</option>
-          <option value="casa">casa/alquiler</option><option value="servicios">servicios</option>
-          <option value="salud">salud</option><option value="ropa">ropa</option>
-          <option value="ocio">ocio</option><option value="suscripciones">suscripciones</option>
+          <option value="servicios">servicios</option><option value="salud">salud</option>
+          <option value="kiosco">kiosco</option><option value="suscripciones">suscripciones</option>
+          <option value="birra/café">birra/café</option><option value="comida fuc">comida fuc</option>
+          <option value="salidas">salidas</option><option value="educación">educación</option>
           <option value="otro">otro</option>
         </select>
       </div>
@@ -509,12 +511,14 @@ const MONTHS=['enero','febrero','marzo','abril','mayo','junio','julio','agosto',
 const CAT_META={
   comida:{color:'#C8F06A',light:'rgba(200,240,106,.12)',hex:'#C8F06A'},
   transporte:{color:'#6AB8F0',light:'rgba(106,184,240,.12)',hex:'#6AB8F0'},
-  casa:{color:'#B06AF0',light:'rgba(176,106,240,.12)',hex:'#B06AF0'},
   servicios:{color:'#F0C46A',light:'rgba(240,196,106,.12)',hex:'#F0C46A'},
   salud:{color:'#F06A8B',light:'rgba(240,106,139,.12)',hex:'#F06A8B'},
-  ropa:{color:'#F09B6A',light:'rgba(240,155,106,.12)',hex:'#F09B6A'},
-  ocio:{color:'#8BF0C0',light:'rgba(139,240,192,.12)',hex:'#8BF0C0'},
+  kiosco:{color:'#F09B6A',light:'rgba(240,155,106,.12)',hex:'#F09B6A'},
   suscripciones:{color:'#F06AF0',light:'rgba(240,106,240,.12)',hex:'#F06AF0'},
+  'birra/café':{color:'#8BF0C0',light:'rgba(139,240,192,.12)',hex:'#8BF0C0'},
+  'comida fuc':{color:'#B06AF0',light:'rgba(176,106,240,.12)',hex:'#B06AF0'},
+  salidas:{color:'#F0E06A',light:'rgba(240,224,106,.12)',hex:'#F0E06A'},
+  educación:{color:'#6AF0D8',light:'rgba(106,240,216,.12)',hex:'#6AF0D8'},
   otro:{color:'#6A6A7A',light:'rgba(106,106,122,.12)',hex:'#6A6A7A'}
 };
 const METHOD_META={efectivo:{color:'#8BF0C0'},débito:{color:'#6AB8F0'},crédito:{color:'#B06AF0'},transferencia:{color:'#F0C46A'},mercadopago:{color:'#F06A8B'},otro:{color:'#6A6A7A'}};
@@ -936,9 +940,13 @@ function renderIngresos(){
 function renderDeudas(){
   const el=document.getElementById('deudas-list');
   const summary=document.getElementById('debt-summary');
-  // only show pending debts
-  const meDeben=state.deudas.filter(d=>d.tipo==='me-deben'&&!d.settled);
-  const leDebo=state.deudas.filter(d=>d.tipo==='le-debo'&&!d.settled);
+
+  // permanently remove settled debts from state
+  state.deudas=state.deudas.filter(d=>!d.settled);
+  saveState();
+
+  const meDeben=state.deudas.filter(d=>d.tipo==='me-deben');
+  const leDebo=state.deudas.filter(d=>d.tipo==='le-debo');
   const totalMeDeben=meDeben.reduce((s,d)=>s+(d.monto-(d.pagado||0)),0);
   const totalLeDebo=leDebo.reduce((s,d)=>s+(d.monto-(d.pagado||0)),0);
 
@@ -965,7 +973,6 @@ function renderDeudas(){
         </div>
         <div style="font-size:.65rem;color:var(--text3);font-family:var(--mono)">${fmt(pagado)} pagado · ${fmt(pendiente)} pendiente</div>
       </div>`:'';
-    // list of partial payments
     const histPagos=(d.pagos||[]).map(p=>`<div style="font-size:.65rem;color:var(--text3);font-family:var(--mono);margin-top:2px">${isoToDisplay(p.fecha)} · ${fmt(p.monto)} · ${p.metodo}</div>`).join('');
     return `<div class="debt-item ${d.tipo}">
       <div class="debt-info">
