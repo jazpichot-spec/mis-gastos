@@ -696,10 +696,19 @@ function addDeuda(){
   const monto=parseFloat(document.getElementById('d-monto').value);
   const desc=document.getElementById('d-desc').value.trim();
   if(!quien||!monto||monto<=0){showToast('completá nombre y monto');return;}
-  state.deudas.unshift({id:Date.now(),quien,monto,desc,fecha:isoToDisplay(todayISO()),tipo:debtMode,settled:false,fechaSettle:null,mesSettle:null,yearSettle:null});
+  state.deudas.unshift({id:Date.now(),quien,monto,desc,fecha:isoToDisplay(todayISO()),tipo:debtMode,settled:false,fechaSettle:null,mesSettle:null,yearSettle:null,pagado:0,pagos:[]});
+
+  // si alguien me debe → ya gasté esa plata, se registra como gasto
+  if(debtMode==='me-deben'){
+    if(!state.gastos[key()])state.gastos[key()]=[];
+    state.gastos[key()].unshift({id:Date.now(),desc:'adelanto: '+quien+(desc?' ('+desc+')':''),cat:'otro',metodo:'efectivo',monto,fecha:todayISO(),esAdelanto:true});
+    showToast('deuda cargada — se descontó de tu disponible');
+  } else {
+    showToast('deuda propia cargada');
+  }
+
   document.getElementById('d-quien').value='';document.getElementById('d-monto').value='';document.getElementById('d-desc').value='';
   saveState();render();
-  showToast(debtMode==='me-deben'?'deuda cargada':'deuda propia cargada');
 }
 
 let pagoDeudaId=null;
@@ -739,8 +748,9 @@ function confirmarPago(){
 
   // register in gastos/ingresos
   if(isMeDeben){
+    // cobro = devolución de plata que ya gasté → se suma al disponible como ingreso de devolución
     if(!state.ingresos[key()])state.ingresos[key()]=[];
-    state.ingresos[key()].unshift({id:Date.now(),desc:'cobro: '+d.quien+(d.desc?' ('+d.desc+')':''),monto,fecha:todayISO(),tipo:'cobro',deudaId:d.id});
+    state.ingresos[key()].unshift({id:Date.now(),desc:'devolución: '+d.quien+(d.desc?' ('+d.desc+')':''),monto,fecha:todayISO(),tipo:'devolución',deudaId:d.id});
   } else {
     if(!state.gastos[key()])state.gastos[key()]=[];
     state.gastos[key()].unshift({id:Date.now(),desc:'pago deuda: '+d.quien+(d.desc?' ('+d.desc+')':''),cat:'otro',metodo,monto,fecha:todayISO(),esDeuda:true});
@@ -817,11 +827,13 @@ function recalc(){
   const totalCredito=gastos.filter(isCredit).reduce((s,g)=>s+g.monto,0);
   const totalPropio=gastos.filter(g=>!isCredit(g)).reduce((s,g)=>s+g.monto,0);
   const totalTodo=totalPropio+totalCredito;
-  const totalExtra=ingresos.reduce((s,i)=>s+i.monto,0);
-  const totalCobros=ingresos.filter(i=>i.tipo==='cobro').reduce((s,i)=>s+i.monto,0);
+  const totalDevoluciones=ingresos.filter(i=>i.tipo==='devolución').reduce((s,i)=>s+i.monto,0);
   const totalIngresosPuros=ingresos.filter(i=>i.tipo==='ingreso').reduce((s,i)=>s+i.monto,0);
+  // extra = solo ingresos reales nuevos, no devoluciones
+  const totalExtra=totalIngresosPuros;
+  // disponible = presupuesto + ingresos extra + devoluciones
   const presup=cfg.presup||0;
-  const presupEfectivo=presup+totalExtra;
+  const presupEfectivo=presup+totalExtra+totalDevoluciones;
 
   document.getElementById('m-presup').textContent=presup?fmt(presup):'—';
   document.getElementById('m-presup-sub').textContent=totalExtra>0?'total disponible: '+fmt(presupEfectivo):'';
@@ -841,8 +853,8 @@ function recalc(){
 
   document.getElementById('m-extra').textContent=fmt(totalExtra);
   const esubs=[];
-  if(totalIngresosPuros>0)esubs.push('freelance: '+fmt(totalIngresosPuros));
-  if(totalCobros>0)esubs.push('cobros: '+fmt(totalCobros));
+  if(totalIngresosPuros>0)esubs.push('freelance/extra: '+fmt(totalIngresosPuros));
+  if(totalDevoluciones>0)esubs.push('devoluciones: '+fmt(totalDevoluciones));
   document.getElementById('m-extra-sub').textContent=esubs.join(' · ');
 
   const pw=document.getElementById('prog-wrap');
@@ -930,7 +942,7 @@ function renderIngresos(){
     <div class="income-item" style="border-left-color:${i.tipo==='cobro'?'var(--teal)':'var(--accent)'}">
       <div style="flex:1;min-width:0">
         <div style="font-size:.82rem;color:var(--text)">${i.desc}</div>
-        <div style="font-size:.68rem;color:var(--text3);margin-top:2px;font-family:var(--mono)">${isoToDisplay(i.fecha)||i.fecha} · ${i.tipo==='cobro'?'cobro de deuda':'ingreso extra'}</div>
+        <div style="font-size:.68rem;color:var(--text3);margin-top:2px;font-family:var(--mono)">${isoToDisplay(i.fecha)||i.fecha} · ${i.tipo==='devolución'?'devolución':i.tipo==='cobro'?'cobro de deuda':'ingreso extra'}</div>
       </div>
       <span style="font-family:var(--mono);font-size:.88rem;font-weight:500;color:${i.tipo==='cobro'?'var(--teal)':'var(--accent)'}">+${fmt(i.monto)}</span>
       <button class="del-btn" style="margin-left:8px" onclick="delIngreso(${i.id})">×</button>
@@ -1331,6 +1343,18 @@ function checkHashImport(){
 }
 
 checkHashImport();
+
+// migrate: convert old 'cobro' tipo to 'devolución' so they don't count as extra income
+if(!localStorage.getItem('mis-gastos-cobro-migrated')){
+  Object.keys(state.ingresos).forEach(k=>{
+    (state.ingresos[k]||[]).forEach(i=>{
+      if(i.tipo==='cobro')i.tipo='devolución';
+    });
+  });
+  saveState();
+  localStorage.setItem('mis-gastos-cobro-migrated','1');
+}
+
 render();
 </script>
 </body>
