@@ -1010,7 +1010,7 @@ function recalc(){
 function renderLista(){
   const filtro=document.getElementById('filtro-cat')?.value||'';
   let gastos=getList();
-  if(filtro)gastos=gastos.filter(g=>g.cat===filtro);
+  if(filtro)gastos=gastos.filter(g=>(g.cat||'').toLowerCase()===filtro.toLowerCase());
   const el=document.getElementById('lista');
   if(!gastos.length){el.innerHTML=`<div class="empty">${filtro?'ningún gasto en esta categoría':'ningún gasto registrado — ¡empezá a cargar!'}</div>`;return;}
   el.innerHTML=`<table><thead><tr><th>fecha</th><th>descripción</th><th>categoría</th><th>método</th><th style="text-align:right">monto</th><th></th></tr></thead><tbody>`+
