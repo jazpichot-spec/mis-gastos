@@ -253,6 +253,7 @@ tbody tr:hover td{background:rgba(255,255,255,.02)}
     <div class="metric" id="mc-disp"><div class="m-label">me queda (mi plata)</div><div class="m-val" id="m-disp">—</div></div>
     <div class="metric" id="mc-gp"><div class="m-label">gasté de mi plata</div><div class="m-val" id="m-gp">$0</div><div class="m-sub" id="m-gp-sub"></div></div>
     <div class="metric teal"><div class="m-label">ingresos extra + cobros</div><div class="m-val teal" id="m-extra">$0</div><div class="m-sub" id="m-extra-sub"></div></div>
+    <div class="metric warn" id="mc-ahorro" style="display:none"><div class="m-label">ahorré este mes</div><div class="m-val warn" id="m-ahorro">$0</div><div class="m-sub" id="m-ahorro-sub"></div></div>
   </div>
 
   <div class="prog-wrap" id="prog-wrap" style="display:none">
@@ -383,6 +384,27 @@ tbody tr:hover td{background:rgba(255,255,255,.02)}
     <div class="card-title" style="margin-bottom:.5rem">comparación mensual</div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px" id="hist-legend"></div>
     <div class="chart-wrap"><canvas id="histChart"></canvas></div>
+  </div>
+
+  <div class="section-divider">ahorro del mes</div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">nuevo ahorro</span>
+      <span style="font-size:.72rem;color:var(--warn)">se descuenta de tu disponible</span>
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:1rem">
+      <input type="text" id="ah-desc" placeholder="descripción (ej: dólares blue)" style="font-family:var(--sans);font-size:.85rem;padding:9px 11px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);outline:none;width:100%;transition:border-color .15s" onkeydown="if(event.key==='Enter')addAhorro()">
+      <select id="ah-moneda" style="font-family:var(--sans);font-size:.85rem;padding:9px 11px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);outline:none;width:100%;appearance:none;background-image:url('data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2712%27 height=%278%27%3E%3Cpath d=%27M1 1l5 5 5-5%27 stroke=%27%238A8990%27 stroke-width=%271.5%27 fill=%27none%27 stroke-linecap=%27round%27/%3E%3C/svg%3E');background-repeat:no-repeat;background-position:right 10px center;padding-right:28px" onchange="toggleCotizacion()">
+        <option value="ARS">$ pesos</option>
+        <option value="USD">USD dólares</option>
+      </select>
+      <input type="number" id="ah-monto" placeholder="monto" style="font-family:var(--sans);font-size:.85rem;padding:9px 11px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);outline:none;width:100%;transition:border-color .15s" onkeydown="if(event.key==='Enter')addAhorro()">
+      <input type="number" id="ah-cotizacion" placeholder="cotización $" style="font-family:var(--sans);font-size:.85rem;padding:9px 11px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);outline:none;width:100%;transition:border-color .15s;display:none" onkeydown="if(event.key==='Enter')addAhorro()">
+      <button class="btn-add" style="background:var(--warn);color:#0E0E10" onclick="addAhorro()">+ ahorrar</button>
+    </div>
+    <div id="ahorro-resumen" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:1rem"></div>
+    <div id="ahorro-list"><div class="empty">sin ahorro registrado este mes</div></div>
   </div>
 
 </main>
@@ -555,10 +577,11 @@ const METHOD_META={efectivo:{color:'#8BF0C0'},débito:{color:'#6AB8F0'},crédito
 const CREDIT=['crédito'];
 
 // ── STATE ──
-let state=JSON.parse(localStorage.getItem('mis-gastos-v7')||'{"gastos":{},"ingresos":{},"deudas":[],"cfg":{}}');
+let state=JSON.parse(localStorage.getItem('mis-gastos-v7')||'{"gastos":{},"ingresos":{},"deudas":[],"cfg":{},"ahorro":{}}');
 if(!state.ingresos)state.ingresos={};
 if(!state.deudas)state.deudas=[];
 if(!state.cfg)state.cfg={};
+if(!state.ahorro)state.ahorro={};
 
 // Migrate from v6
 const oldState=localStorage.getItem('mis-gastos-v6');
@@ -591,6 +614,7 @@ const key=()=>yearMonthKey(curYear,curMonth);
 const getList=()=>state.gastos[key()]||[];
 const getIngresos=()=>state.ingresos[key()]||[];
 const getCfg=()=>state.cfg[key()]||{sueldo:0,aporte:0,presup:0};
+const getAhorro=()=>state.ahorro[key()]||[];
 const fmt=n=>'$'+Math.round(n).toLocaleString('es-AR');
 const pct=(a,b)=>b>0?Math.round(a/b*100):0;
 const isCredit=g=>CREDIT.includes(g.metodo);
@@ -693,7 +717,62 @@ function saveEdit(){
   showToast('gasto actualizado ✓');
 }
 
-// ── INGRESOS ──
+// ── AHORRO ──
+function toggleCotizacion(){
+  const moneda=document.getElementById('ah-moneda').value;
+  const cotEl=document.getElementById('ah-cotizacion');
+  cotEl.style.display=moneda==='USD'?'block':'none';
+}
+
+function addAhorro(){
+  const desc=document.getElementById('ah-desc').value.trim();
+  const moneda=document.getElementById('ah-moneda').value;
+  const monto=parseFloat(document.getElementById('ah-monto').value);
+  const cotizacion=parseFloat(document.getElementById('ah-cotizacion').value)||0;
+  if(!desc||!monto||monto<=0){showToast('completá descripción y monto');return;}
+  if(moneda==='USD'&&!cotizacion){showToast('ingresá la cotización en pesos');return;}
+  const montoARS=moneda==='USD'?monto*cotizacion:monto;
+  if(!state.ahorro[key()])state.ahorro[key()]=[];
+  state.ahorro[key()].unshift({id:Date.now(),desc,moneda,monto,cotizacion:moneda==='USD'?cotizacion:null,montoARS,fecha:todayISO()});
+  document.getElementById('ah-desc').value='';
+  document.getElementById('ah-monto').value='';
+  document.getElementById('ah-cotizacion').value='';
+  saveState();render();
+  showToast('ahorro registrado ✓ — se descontó de tu disponible');
+}
+
+function delAhorro(id){
+  if(!confirm('¿Borrar este registro de ahorro?'))return;
+  state.ahorro[key()]=(state.ahorro[key()]||[]).filter(a=>a.id!==id);
+  saveState();render();
+}
+
+function renderAhorro(){
+  const ahorros=getAhorro();
+  const el=document.getElementById('ahorro-list');
+  const resumen=document.getElementById('ahorro-resumen');
+  if(!ahorros.length){
+    el.innerHTML='<div class="empty">sin ahorro registrado este mes</div>';
+    resumen.innerHTML='';
+    return;
+  }
+  const totalARS=ahorros.reduce((s,a)=>s+a.montoARS,0);
+  const totalUSD=ahorros.filter(a=>a.moneda==='USD').reduce((s,a)=>s+a.monto,0);
+  resumen.innerHTML=
+    `<span class="dpill" style="background:rgba(240,196,106,.12);color:var(--warn)">${fmt(totalARS)} ahorrados</span>`+
+    (totalUSD>0?`<span class="dpill" style="background:rgba(240,196,106,.08);color:var(--warn)">U$D ${totalUSD.toLocaleString('es-AR')}</span>`:'');
+  el.innerHTML=ahorros.map(a=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:6px;border-left:3px solid var(--warn)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.82rem;color:var(--text)">${a.desc}</div>
+        <div style="font-size:.68rem;color:var(--text3);margin-top:2px;font-family:var(--mono)">${isoToDisplay(a.fecha)} · ${a.moneda==='USD'?`U$D ${a.monto.toLocaleString('es-AR')} × $${a.cotizacion.toLocaleString('es-AR')} = ${fmt(a.montoARS)}`:fmt(a.montoARS)}</div>
+      </div>
+      <span style="font-family:var(--mono);font-size:.88rem;font-weight:500;color:var(--warn)">${fmt(a.montoARS)}</span>
+      <button class="del-btn" onclick="delAhorro(${a.id})">×</button>
+    </div>`).join('');
+}
+
+
 function addIngreso(){
   const desc=document.getElementById('inc-desc').value.trim();
   const monto=parseFloat(document.getElementById('inc-monto').value);
@@ -828,7 +907,7 @@ function render(){
   document.getElementById('hm-label').textContent=MONTHS[curMonth].slice(0,3)+' '+curYear;
   document.getElementById('cfg-mes-label').textContent=MONTHS[curMonth]+' '+curYear;
   loadCfg();
-  renderTabs();recalc();renderLista();renderCats();renderMethods();renderIngresos();renderDeudas();renderHist();
+  renderTabs();recalc();renderLista();renderCats();renderMethods();renderIngresos();renderAhorro();renderDeudas();renderHist();
   setDebtMode(debtMode);
   // set default date inputs
   document.getElementById('f-fecha').value='';
@@ -854,28 +933,29 @@ function recalc(){
   const cfg=getCfg();
   const gastos=getList();
   const ingresos=getIngresos();
+  const ahorros=getAhorro();
   const totalCredito=gastos.filter(isCredit).reduce((s,g)=>s+g.monto,0);
   const totalPropio=gastos.filter(g=>!isCredit(g)).reduce((s,g)=>s+g.monto,0);
   const totalTodo=totalPropio+totalCredito;
   const totalDevoluciones=ingresos.filter(i=>i.tipo==='devolución').reduce((s,i)=>s+i.monto,0);
   const totalIngresosPuros=ingresos.filter(i=>i.tipo==='ingreso').reduce((s,i)=>s+i.monto,0);
-  // extra = solo ingresos reales nuevos, no devoluciones
   const totalExtra=totalIngresosPuros;
-  // disponible = presupuesto + ingresos extra + devoluciones
+  const totalAhorroARS=ahorros.reduce((s,a)=>s+a.montoARS,0);
+  const totalAhorroUSD=ahorros.filter(a=>a.moneda==='USD').reduce((s,a)=>s+a.monto,0);
   const presup=cfg.presup||0;
   const presupEfectivo=presup+totalExtra+totalDevoluciones;
 
   document.getElementById('m-presup').textContent=presup?fmt(presup):'—';
   document.getElementById('m-presup-sub').textContent=totalExtra>0?'total disponible: '+fmt(presupEfectivo):'';
 
-  const disp=presupEfectivo-totalPropio;
+  const disp=presupEfectivo-totalPropio-totalAhorroARS;
   const el_disp=document.getElementById('m-disp');
   const mc_disp=document.getElementById('mc-disp');
   el_disp.textContent=presup?fmt(disp):'—';
   const st=presup?(disp<0?'bad':disp<presupEfectivo*.15?'warn':'ok'):'';
   el_disp.className='m-val '+st;mc_disp.className='metric '+st;
 
-  const pgp=pct(totalPropio,presupEfectivo);
+  const pgp=pct(totalPropio+totalAhorroARS,presupEfectivo);
   document.getElementById('m-gp').textContent=fmt(totalPropio);
   document.getElementById('m-gp').className='m-val '+(presup?(pgp>100?'bad':pgp>85?'warn':'ok'):'');
   document.getElementById('m-gp-sub').textContent=presup?pgp+'% del disponible':'';
@@ -886,6 +966,16 @@ function recalc(){
   if(totalIngresosPuros>0)esubs.push('freelance/extra: '+fmt(totalIngresosPuros));
   if(totalDevoluciones>0)esubs.push('devoluciones: '+fmt(totalDevoluciones));
   document.getElementById('m-extra-sub').textContent=esubs.join(' · ');
+
+  // ahorro metric
+  const mc_ah=document.getElementById('mc-ahorro');
+  if(totalAhorroARS>0){
+    mc_ah.style.display='block';
+    document.getElementById('m-ahorro').textContent=fmt(totalAhorroARS);
+    const ahSubs=[];
+    if(totalAhorroUSD>0)ahSubs.push('U$D '+totalAhorroUSD.toLocaleString('es-AR'));
+    document.getElementById('m-ahorro-sub').textContent=ahSubs.join(' · ');
+  } else mc_ah.style.display='none';
 
   const pw=document.getElementById('prog-wrap');
   if(presupEfectivo>0){
