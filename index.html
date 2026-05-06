@@ -256,10 +256,6 @@ tbody tr:hover td{background:rgba(255,255,255,.02)}
     <div class="metric warn" id="mc-ahorro" style="display:none"><div class="m-label">ahorré este mes</div><div class="m-val warn" id="m-ahorro">$0</div><div class="m-sub" id="m-ahorro-sub"></div></div>
   </div>
 
-  <div class="prog-wrap" id="prog-wrap" style="display:none">
-    <div class="prog-bg"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
-    <div class="prog-labels"><span>$0</span><span id="prog-max">$0</span></div>
-  </div>
 
   <div class="credit-banner" id="credit-banner" style="display:none">
     <div><div class="cb-label">crédito del mes (lo pagan tus papás aparte)</div><div class="cb-val" id="cb-val">$0</div></div>
@@ -338,6 +334,20 @@ tbody tr:hover td{background:rgba(255,255,255,.02)}
   <div class="card">
     <div class="card-header">
       <span class="card-title">lista de gastos</span>
+      <select id="filtro-cat" onchange="renderLista()" style="font-family:var(--sans);font-size:.78rem;padding:5px 28px 5px 10px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text2);outline:none;appearance:none;background-image:url('data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2712%27 height=%278%27%3E%3Cpath d=%27M1 1l5 5 5-5%27 stroke=%27%238A8990%27 stroke-width=%271.5%27 fill=%27none%27 stroke-linecap=%27round%27/%3E%3C/svg%3E');background-repeat:no-repeat;background-position:right 8px center;cursor:pointer">
+        <option value="">todas las categorías</option>
+        <option value="Comida">Comida</option>
+        <option value="Transporte">Transporte</option>
+        <option value="Casa">Casa</option>
+        <option value="Salud">Salud</option>
+        <option value="Gastos personales">Gastos personales</option>
+        <option value="FUC">FUC</option>
+        <option value="Social">Social</option>
+        <option value="Educación">Educación</option>
+        <option value="Tabaco">Tabaco</option>
+        <option value="Devolución">Devolución</option>
+        <option value="Otro">Otro</option>
+      </select>
     </div>
     <div class="tbl-wrap"><div id="lista"></div></div>
   </div>
@@ -977,16 +987,6 @@ function recalc(){
     document.getElementById('m-ahorro-sub').textContent=ahSubs.join(' · ');
   } else mc_ah.style.display='none';
 
-  const pw=document.getElementById('prog-wrap');
-  if(presupEfectivo>0){
-    pw.style.display='block';
-    const pp=Math.min(pct(totalPropio,presupEfectivo),100);
-    const fill=document.getElementById('prog-fill');
-    fill.style.width=pp+'%';
-    fill.style.background=pp>100?'#F06A6A':pp>85?'#F0C46A':'#C8F06A';
-    document.getElementById('prog-max').textContent=fmt(presupEfectivo);
-  } else pw.style.display='none';
-
   const cb=document.getElementById('credit-banner');
   if(totalCredito>0){cb.style.display='flex';document.getElementById('cb-val').textContent=fmt(totalCredito);}
   else cb.style.display='none';
@@ -1008,9 +1008,11 @@ function recalc(){
 }
 
 function renderLista(){
-  const gastos=getList();
+  const filtro=document.getElementById('filtro-cat')?.value||'';
+  let gastos=getList();
+  if(filtro)gastos=gastos.filter(g=>g.cat===filtro);
   const el=document.getElementById('lista');
-  if(!gastos.length){el.innerHTML='<div class="empty">ningún gasto registrado — ¡empezá a cargar!</div>';return;}
+  if(!gastos.length){el.innerHTML=`<div class="empty">${filtro?'ningún gasto en esta categoría':'ningún gasto registrado — ¡empezá a cargar!'}</div>`;return;}
   el.innerHTML=`<table><thead><tr><th>fecha</th><th>descripción</th><th>categoría</th><th>método</th><th style="text-align:right">monto</th><th></th></tr></thead><tbody>`+
     gastos.map(g=>{
       const cm=CAT_META[g.cat]||CAT_META.otro;
