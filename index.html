@@ -523,7 +523,7 @@ const CAT_META={
   educación:{color:'#6AF0D8',light:'rgba(106,240,216,.12)',hex:'#6AF0D8'},
   tabaco:{color:'#C4A882',light:'rgba(196,168,130,.12)',hex:'#C4A882'},
   // categorías anteriores (compatibilidad con datos viejos)
-  ocio:{color:'#8BF0C0',light:'rgba(139,240,192,.12)',hex:'#8BF0C0'},
+  devolución:{color:'#5DCAA5',light:'rgba(93,202,165,.12)',hex:'#5DCAA5'},
   ropa:{color:'#F09B6A',light:'rgba(240,155,106,.12)',hex:'#F09B6A'},
   casa:{color:'#B06AF0',light:'rgba(176,106,240,.12)',hex:'#B06AF0'},
   servicios:{color:'#F0C46A',light:'rgba(240,196,106,.12)',hex:'#F0C46A'},
@@ -710,7 +710,7 @@ function addDeuda(){
   // si alguien me debe → ya gasté esa plata, se registra como gasto
   if(debtMode==='me-deben'){
     if(!state.gastos[key()])state.gastos[key()]=[];
-    state.gastos[key()].unshift({id:Date.now(),desc:'adelanto: '+quien+(desc?' ('+desc+')':''),cat:'otro',metodo:'efectivo',monto,fecha:todayISO(),esAdelanto:true});
+    state.gastos[key()].unshift({id:Date.now(),desc:'adelanto: '+quien+(desc?' ('+desc+')':''),cat:'devolución',metodo:'efectivo',monto,fecha:todayISO(),esAdelanto:true});
     showToast('deuda cargada — se descontó de tu disponible');
   } else {
     showToast('deuda propia cargada');
@@ -905,13 +905,13 @@ function renderLista(){
       const cm=CAT_META[g.cat]||CAT_META.otro;
       const mm=METHOD_META[g.metodo]||METHOD_META.otro;
       const credit=isCredit(g);
-      const isDebt=g.esDeuda;
+      const isAdelanto=g.esAdelanto;
       return `<tr>
         <td style="color:var(--text3);font-family:var(--mono);font-size:.72rem">${isoToDisplay(g.fecha)||g.fecha}</td>
         <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${g.desc}">${g.desc}${isDebt?'<span style="font-size:.62rem;color:var(--danger);margin-left:5px">deuda</span>':''}</td>
         <td><span class="badge" style="background:${cm.light};color:${cm.color}">${g.cat}</span></td>
         <td><span class="badge" style="background:rgba(255,255,255,.05);color:${mm.color}">${g.metodo}</span>${credit?'<span style="font-size:.62rem;color:var(--purple);margin-left:5px">papás</span>':''}</td>
-        <td style="font-family:var(--mono);font-weight:500;text-align:right;color:${credit?'var(--purple)':'var(--text)'}">${fmt(g.monto)}</td>
+        <td style="font-family:var(--mono);font-weight:500;text-align:right;color:${isAdelanto?'var(--teal)':credit?'var(--purple)':'var(--text)'}">${isAdelanto?'−':''}${fmt(g.monto)}</td>
         <td style="white-space:nowrap">
           <button class="edit-btn" onclick="openEditModal(${g.id})" title="editar">✏️</button>
           <button class="del-btn" onclick="delGasto(${g.id})">×</button>
