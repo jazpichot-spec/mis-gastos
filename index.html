@@ -1169,18 +1169,23 @@ function renderHist(){
 function openReporteModal(){
   const gastos=getList();
   const ingresos=getIngresos();
+  const ahorros=getAhorro();
   const cfg=getCfg();
   const totalCredito=gastos.filter(isCredit).reduce((s,g)=>s+g.monto,0);
   const totalPropio=gastos.filter(g=>!isCredit(g)).reduce((s,g)=>s+g.monto,0);
-  const totalExtra=ingresos.reduce((s,i)=>s+i.monto,0);
+  const totalDevoluciones=ingresos.filter(i=>i.tipo==='devolución').reduce((s,i)=>s+i.monto,0);
+  const totalExtra=ingresos.filter(i=>i.tipo==='ingreso').reduce((s,i)=>s+i.monto,0);
+  const totalAhorroARS=ahorros.reduce((s,a)=>s+a.montoARS,0);
   const presup=cfg.presup||0;
-  const presupEfectivo=presup+totalExtra;
-  const disp=presupEfectivo-totalPropio;
+  const presupEfectivo=presup+totalExtra+totalDevoluciones;
+  const disp=presupEfectivo-totalPropio-totalAhorroARS;
   document.getElementById('reporte-preview-info').innerHTML=`
     <b style="color:var(--text)">${MONTHS[curMonth]} ${curYear}</b><br>
     Gastos propios: <b style="color:var(--accent)">${fmt(totalPropio)}</b><br>
     Crédito (papás): <b style="color:var(--purple)">${fmt(totalCredito)}</b><br>
     Ingresos extra: <b style="color:var(--teal)">${fmt(totalExtra)}</b><br>
+    ${totalDevoluciones>0?`Devoluciones: <b style="color:var(--teal)">${fmt(totalDevoluciones)}</b><br>`:''}
+    ${totalAhorroARS>0?`Ahorré: <b style="color:var(--warn)">${fmt(totalAhorroARS)}</b><br>`:''}
     ${presup?`Me quedó: <b style="color:${disp>=0?'var(--accent)':'var(--danger)'}">${fmt(disp)}</b><br>`:''}
     Transacciones: <b style="color:var(--text)">${gastos.length}</b>
   `;
@@ -1189,157 +1194,264 @@ function openReporteModal(){
 
 function generarPDF(){
   const {jsPDF}=window.jspdf;
-  const gastos=getList().slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
+  const gastosAll=getList().slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
+  const gastosReales=gastosAll.filter(g=>!isCredit(g)&&!g.esAdelanto);
+  const adelantos=gastosAll.filter(g=>g.esAdelanto);
+  const gastosCredito=gastosAll.filter(isCredit);
   const ingresos=getIngresos();
+  const ahorros=getAhorro();
   const cfg=getCfg();
-  const totalCredito=gastos.filter(isCredit).reduce((s,g)=>s+g.monto,0);
-  const totalPropio=gastos.filter(g=>!isCredit(g)).reduce((s,g)=>s+g.monto,0);
-  const totalExtra=ingresos.reduce((s,i)=>s+i.monto,0);
+  const hexToRgb=h=>{const r=parseInt(h.slice(1,3),16),gv=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return[r,gv,b];};
+
+  const totalCredito=gastosCredito.reduce((s,g)=>s+g.monto,0);
+  const totalPropio=gastosReales.reduce((s,g)=>s+g.monto,0);
+  const totalAdelantos=adelantos.reduce((s,g)=>s+g.monto,0);
+  const totalDevoluciones=ingresos.filter(i=>i.tipo==='devolución').reduce((s,i)=>s+i.monto,0);
+  const totalExtra=ingresos.filter(i=>i.tipo==='ingreso').reduce((s,i)=>s+i.monto,0);
+  const totalAhorroARS=ahorros.reduce((s,a)=>s+a.montoARS,0);
   const presup=cfg.presup||0;
-  const presupEfectivo=presup+totalExtra;
-  const disp=presupEfectivo-totalPropio;
+  const presupEfectivo=presup+totalExtra+totalDevoluciones;
+  const disp=presupEfectivo-totalPropio-totalAdelantos-totalAhorroARS;
   const mesLabel=MONTHS[curMonth]+' '+curYear;
 
   const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
-  const W=210,M=18,CW=W-M*2;
-  let y=M;
+  const W=210,M=16,CW=W-M*2;
+  let y=0;
 
-  // Header
+  const newPage=()=>{doc.addPage();y=M;};
+  const checkY=(needed=10)=>{if(y+needed>280)newPage();};
+
+  const sectionTitle=(text)=>{
+    checkY(12);
+    doc.setFillColor(22,22,26);
+    doc.rect(M,y,CW,7,'F');
+    doc.setFillColor(200,240,106);
+    doc.rect(M,y,2,7,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.setTextColor(200,240,106);
+    doc.text(text,M+6,y+4.8);
+    y+=10;
+  };
+
+  // ── HEADER ──
   doc.setFillColor(14,14,16);
-  doc.rect(0,0,W,28,'F');
-  doc.setFont('helvetica','bold');
-  doc.setFontSize(16);doc.setTextColor(200,240,106);
-  doc.text('mis gastos',M,y+7);
-  doc.setFontSize(10);doc.setTextColor(138,137,144);
-  doc.text('reporte mensual — '+mesLabel,M,y+14);
+  doc.rect(0,0,W,32,'F');
+  doc.setFillColor(200,240,106);
+  doc.rect(0,30,W,2,'F');
+  doc.setFont('helvetica','bold');doc.setFontSize(18);doc.setTextColor(200,240,106);
+  doc.text('mis gastos',M,14);
+  doc.setFontSize(9);doc.setTextColor(138,137,144);
+  doc.text('reporte mensual — '+mesLabel,M,22);
   doc.setFontSize(8);doc.setTextColor(74,73,80);
-  doc.text('generado el '+isoToDisplay(todayISO()),W-M,y+14,{align:'right'});
-  y=36;
+  doc.text('generado el '+isoToDisplay(todayISO()),W-M,22,{align:'right'});
+  y=40;
 
-  // Metrics boxes
+  // ── METRICS ──
   const metrics=[
-    {label:'GASTOS PROPIOS',val:fmt(totalPropio),color:[200,240,106]},
+    {label:'GASTÉ (MI PLATA)',val:fmt(totalPropio+totalAdelantos),color:[200,240,106]},
     {label:'CRÉDITO (PAPÁS)',val:fmt(totalCredito),color:[176,106,240]},
     {label:'INGRESOS EXTRA',val:fmt(totalExtra),color:[93,202,165]},
+    ...(totalDevoluciones>0?[{label:'DEVOLUCIONES',val:fmt(totalDevoluciones),color:[93,202,165]}]:[]),
+    ...(totalAhorroARS>0?[{label:'AHORRÉ',val:fmt(totalAhorroARS),color:[240,196,106]}]:[]),
     ...(presup?[{label:'ME QUEDÓ',val:fmt(disp),color:disp>=0?[200,240,106]:[240,106,106]}]:[]),
   ];
-  const bw=(CW-(metrics.length-1)*4)/metrics.length;
+  const cols2=Math.min(metrics.length,3);
+  const bw=(CW-(cols2-1)*4)/cols2;
   metrics.forEach((m,i)=>{
-    const bx=M+i*(bw+4);
+    const row=Math.floor(i/cols2);
+    const col=i%cols2;
+    const bx=M+col*(bw+4);
+    const by=y+row*22;
     doc.setFillColor(22,22,26);
-    doc.roundedRect(bx,y,bw,18,2,2,'F');
+    doc.roundedRect(bx,by,bw,18,2,2,'F');
     doc.setFillColor(...m.color);
-    doc.rect(bx,y,bw,1.5,'F');
-    doc.setFont('helvetica','normal');doc.setFontSize(6.5);doc.setTextColor(74,73,80);
-    doc.text(m.label,bx+4,y+7);
-    doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(...m.color);
-    doc.text(m.val,bx+4,y+14);
+    doc.rect(bx,by,bw,1.5,'F');
+    doc.setFont('helvetica','normal');doc.setFontSize(6);doc.setTextColor(74,73,80);
+    doc.text(m.label,bx+4,by+7);
+    doc.setFont('helvetica','bold');doc.setFontSize(9.5);doc.setTextColor(...m.color);
+    doc.text(m.val,bx+4,by+14);
   });
-  y+=26;
+  const rows=Math.ceil(metrics.length/cols2);
+  y+=rows*22+4;
 
-  // Progress bar
+  // ── PROGRESS BAR ──
   if(presupEfectivo>0){
-    const pp=Math.min(totalPropio/presupEfectivo,1);
+    checkY(14);
+    const pp=Math.min((totalPropio+totalAdelantos+totalAhorroARS)/presupEfectivo,1);
     doc.setFillColor(30,30,36);
-    doc.roundedRect(M,y,CW,3,1,1,'F');
+    doc.roundedRect(M,y,CW,4,1,1,'F');
     const barColor=pp>1?[240,106,106]:pp>.85?[240,196,106]:[200,240,106];
     doc.setFillColor(...barColor);
-    doc.roundedRect(M,y,CW*pp,3,1,1,'F');
-    doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(74,73,80);
-    doc.text('$0',M,y+7);
-    doc.text(fmt(presupEfectivo),M+CW,y+7,{align:'right'});
-    doc.text(Math.round(pp*100)+'% del presupuesto usado',M+CW/2,y+7,{align:'center'});
+    doc.roundedRect(M,y,CW*pp,4,1,1,'F');
+    doc.setFont('helvetica','normal');doc.setFontSize(6.5);doc.setTextColor(74,73,80);
+    doc.text(Math.round(pp*100)+'% del presupuesto usado',M+CW/2,y+8,{align:'center'});
     y+=14;
   }
 
-  // Gastos table
-  doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(74,73,80);
-  doc.text('DETALLE DE GASTOS',M,y);
-  y+=5;
-  // Table header
-  doc.setFillColor(22,22,26);
-  doc.rect(M,y,CW,7,'F');
-  doc.setFont('helvetica','bold');doc.setFontSize(7);doc.setTextColor(74,73,80);
-  const cols=[{x:M+2,w:22,label:'FECHA'},{x:M+24,w:60,label:'DESCRIPCIÓN'},{x:M+84,w:28,label:'CATEGORÍA'},{x:M+112,w:28,label:'MÉTODO'},{x:M+140,w:26,label:'MONTO',right:true}];
-  cols.forEach(c=>doc.text(c.label,c.right?c.x+c.w:c.x,y+4.5,{align:c.right?'right':'left'}));
-  y+=7;
+  // ── GASTOS REALES ──
+  sectionTitle('DETALLE DE GASTOS');
+  // table header
+  doc.setFillColor(18,18,22);doc.rect(M,y,CW,6,'F');
+  doc.setFont('helvetica','bold');doc.setFontSize(6.5);doc.setTextColor(74,73,80);
+  doc.text('FECHA',M+2,y+4);doc.text('DESCRIPCIÓN',M+22,y+4);doc.text('CATEGORÍA',M+90,y+4);doc.text('MÉTODO',M+122,y+4);doc.text('MONTO',M+CW-2,y+4,{align:'right'});
+  y+=6;
 
-  gastos.forEach((g,idx)=>{
-    if(y>272){doc.addPage();y=M;}
-    const cr=isCredit(g);
+  gastosReales.forEach((g,idx)=>{
+    checkY(7);
     if(idx%2===0){doc.setFillColor(22,22,26);doc.rect(M,y,CW,6.5,'F');}
-    doc.setFont('helvetica','normal');doc.setFontSize(7.5);
-    doc.setTextColor(138,137,144);doc.text(isoToDisplay(g.fecha)||g.fecha||'',M+2,y+4.5);
-    doc.setTextColor(240,239,232);
-    const descTrunc=g.desc.length>32?g.desc.slice(0,32)+'…':g.desc;
-    doc.text(descTrunc,M+24,y+4.5);
+    doc.setFont('helvetica','normal');doc.setFontSize(7);
+    doc.setTextColor(138,137,144);doc.text(isoToDisplay(g.fecha)||'',M+2,y+4.3);
+    doc.setTextColor(220,219,212);
+    const d=g.desc.length>35?g.desc.slice(0,35)+'…':g.desc;
+    doc.text(d,M+22,y+4.3);
     const cm=CAT_META[g.cat]||CAT_META.otro;
-    const hexToRgb=h=>{const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return[r,g,b];};
-    doc.setTextColor(...hexToRgb(cm.hex||cm.color));doc.text(g.cat,M+84,y+4.5);
-    doc.setTextColor(138,137,144);doc.text(g.metodo,M+112,y+4.5);
-    doc.setTextColor(cr?176:240,cr?106:239,cr?240:232);
-    doc.text(fmt(g.monto),M+166,y+4.5,{align:'right'});
+    doc.setTextColor(...hexToRgb(cm.hex||cm.color));
+    doc.text(g.cat,M+90,y+4.3);
+    doc.setTextColor(138,137,144);doc.text(g.metodo,M+122,y+4.3);
+    doc.setTextColor(220,219,212);doc.setFont('helvetica','bold');
+    doc.text(fmt(g.monto),M+CW-2,y+4.3,{align:'right'});
     y+=6.5;
   });
 
-  // Totals
-  y+=3;
+  // total row
+  checkY(10);
   doc.setFillColor(14,14,16);doc.rect(M,y,CW,8,'F');
-  doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(138,137,144);
-  doc.text('TOTAL GASTOS PROPIOS',M+2,y+5.5);
-  doc.setTextColor(200,240,106);doc.text(fmt(totalPropio),M+166,y+5.5,{align:'right'});
+  doc.setFont('helvetica','bold');doc.setFontSize(7.5);doc.setTextColor(138,137,144);
+  doc.text('TOTAL',M+2,y+5.5);
+  doc.setTextColor(200,240,106);doc.text(fmt(totalPropio),M+CW-2,y+5.5,{align:'right'});
   y+=10;
-  if(totalCredito>0){
-    doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(138,137,144);
-    doc.text('crédito (papás, no incluido arriba):',M+2,y+4.5);
-    doc.setTextColor(176,106,240);doc.text(fmt(totalCredito),M+166,y+4.5,{align:'right'});
-    y+=8;
+
+  // ── ADELANTOS ──
+  if(adelantos.length){
+    checkY(12);
+    sectionTitle('ADELANTOS (PLATA QUE PRESTASTE)');
+    adelantos.forEach((g,idx)=>{
+      checkY(7);
+      if(idx%2===0){doc.setFillColor(22,22,26);doc.rect(M,y,CW,6.5,'F');}
+      doc.setFont('helvetica','normal');doc.setFontSize(7);
+      doc.setTextColor(138,137,144);doc.text(isoToDisplay(g.fecha)||'',M+2,y+4.3);
+      doc.setTextColor(220,219,212);
+      const d=g.desc.length>50?g.desc.slice(0,50)+'…':g.desc;
+      doc.text(d,M+22,y+4.3);
+      doc.setTextColor(93,202,165);doc.setFont('helvetica','bold');
+      doc.text('−'+fmt(g.monto),M+CW-2,y+4.3,{align:'right'});
+      y+=6.5;
+    });
+    checkY(8);
+    doc.setFillColor(14,14,16);doc.rect(M,y,CW,7,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(7);doc.setTextColor(138,137,144);
+    doc.text('TOTAL ADELANTADO',M+2,y+4.8);
+    doc.setTextColor(93,202,165);doc.text('−'+fmt(totalAdelantos),M+CW-2,y+4.8,{align:'right'});
+    y+=9;
   }
 
-  // Categories
-  if(y>240){doc.addPage();y=M;}
-  y+=4;
-  doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(74,73,80);
-  doc.text('GASTOS POR CATEGORÍA',M,y);y+=6;
-  const totals={};gastos.forEach(g=>{totals[g.cat]=(totals[g.cat]||0)+g.monto;});
+  // ── CREDITO ──
+  if(totalCredito>0){
+    checkY(12);
+    sectionTitle('CRÉDITO DEL MES (LO PAGAN TUS PAPÁS)');
+    gastosCredito.forEach((g,idx)=>{
+      checkY(7);
+      if(idx%2===0){doc.setFillColor(22,22,26);doc.rect(M,y,CW,6.5,'F');}
+      doc.setFont('helvetica','normal');doc.setFontSize(7);
+      doc.setTextColor(138,137,144);doc.text(isoToDisplay(g.fecha)||'',M+2,y+4.3);
+      doc.setTextColor(220,219,212);doc.text(g.desc.length>50?g.desc.slice(0,50)+'…':g.desc,M+22,y+4.3);
+      doc.setTextColor(176,106,240);doc.setFont('helvetica','bold');
+      doc.text(fmt(g.monto),M+CW-2,y+4.3,{align:'right'});
+      y+=6.5;
+    });
+    checkY(8);
+    doc.setFillColor(14,14,16);doc.rect(M,y,CW,7,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(7);doc.setTextColor(138,137,144);
+    doc.text('TOTAL CRÉDITO',M+2,y+4.8);
+    doc.setTextColor(176,106,240);doc.text(fmt(totalCredito),M+CW-2,y+4.8,{align:'right'});
+    y+=9;
+  }
+
+  // ── CATEGORIAS ──
+  checkY(16);
+  sectionTitle('GASTOS POR CATEGORÍA');
+  const totals={};
+  gastosReales.forEach(g=>{totals[g.cat]=(totals[g.cat]||0)+g.monto;});
   const maxAmt=Math.max(...Object.values(totals),1);
   Object.entries(totals).sort((a,b)=>b[1]-a[1]).forEach(([cat,amt])=>{
-    if(y>272){doc.addPage();y=M;}
-    const cm=CAT_META[cat]||CAT_META.otro;
-    const hexToRgb=h=>{const r=parseInt(h.slice(1,3),16),gv=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return[r,gv,b];};
-    doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(138,137,144);
+    checkY(9);
+    const cm=CAT_META[cat]||CAT_META['Otro']||CAT_META.otro;
+    const rgb=hexToRgb(cm.hex||cm.color);
+    doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(180,179,172);
     doc.text(cat,M,y+3.5);
-    doc.setFillColor(30,30,36);doc.roundedRect(M+28,y,80,3,1,1,'F');
-    doc.setFillColor(...hexToRgb(cm.hex||cm.color));
-    doc.roundedRect(M+28,y,80*(amt/maxAmt),3,1,1,'F');
-    doc.setFont('helvetica','bold');doc.setTextColor(...hexToRgb(cm.hex||cm.color));
+    doc.setFillColor(30,30,36);doc.roundedRect(M+32,y,85,3.5,1,1,'F');
+    doc.setFillColor(...rgb);doc.roundedRect(M+32,y,85*(amt/maxAmt),3.5,1,1,'F');
+    doc.setFont('helvetica','bold');doc.setTextColor(...rgb);
     doc.text(fmt(amt),M+CW,y+3.5,{align:'right'});
     y+=8;
   });
 
-  // Ingresos extra
-  if(ingresos.length){
-    if(y>240){doc.addPage();y=M;}
-    y+=4;
-    doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(74,73,80);
-    doc.text('INGRESOS EXTRA DEL MES',M,y);y+=6;
-    ingresos.forEach(i=>{
-      if(y>272){doc.addPage();y=M;}
-      doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(138,137,144);
-      doc.text(isoToDisplay(i.fecha)||i.fecha,M,y+3.5);
-      doc.setTextColor(240,239,232);doc.text(i.desc,M+24,y+3.5);
-      doc.setTextColor(93,202,165);doc.text('+'+fmt(i.monto),M+CW,y+3.5,{align:'right'});
-      y+=7;
+  // ── INGRESOS EXTRA ──
+  const ingresosExtra=ingresos.filter(i=>i.tipo==='ingreso');
+  if(ingresosExtra.length){
+    checkY(12);
+    sectionTitle('INGRESOS EXTRA DEL MES');
+    ingresosExtra.forEach((i,idx)=>{
+      checkY(7);
+      if(idx%2===0){doc.setFillColor(22,22,26);doc.rect(M,y,CW,6.5,'F');}
+      doc.setFont('helvetica','normal');doc.setFontSize(7);
+      doc.setTextColor(138,137,144);doc.text(isoToDisplay(i.fecha)||'',M+2,y+4.3);
+      doc.setTextColor(220,219,212);doc.text(i.desc.length>60?i.desc.slice(0,60)+'…':i.desc,M+22,y+4.3);
+      doc.setTextColor(93,202,165);doc.setFont('helvetica','bold');
+      doc.text('+'+fmt(i.monto),M+CW-2,y+4.3,{align:'right'});
+      y+=6.5;
     });
   }
 
-  // Footer
+  // ── DEVOLUCIONES ──
+  const devols=ingresos.filter(i=>i.tipo==='devolución');
+  if(devols.length){
+    checkY(12);
+    sectionTitle('DEVOLUCIONES COBRADAS');
+    devols.forEach((i,idx)=>{
+      checkY(7);
+      if(idx%2===0){doc.setFillColor(22,22,26);doc.rect(M,y,CW,6.5,'F');}
+      doc.setFont('helvetica','normal');doc.setFontSize(7);
+      doc.setTextColor(138,137,144);doc.text(isoToDisplay(i.fecha)||'',M+2,y+4.3);
+      doc.setTextColor(220,219,212);doc.text(i.desc.length>60?i.desc.slice(0,60)+'…':i.desc,M+22,y+4.3);
+      doc.setTextColor(93,202,165);doc.setFont('helvetica','bold');
+      doc.text('+'+fmt(i.monto),M+CW-2,y+4.3,{align:'right'});
+      y+=6.5;
+    });
+  }
+
+  // ── AHORRO ──
+  if(ahorros.length){
+    checkY(12);
+    sectionTitle('AHORRO DEL MES');
+    ahorros.forEach((a,idx)=>{
+      checkY(7);
+      if(idx%2===0){doc.setFillColor(22,22,26);doc.rect(M,y,CW,6.5,'F');}
+      doc.setFont('helvetica','normal');doc.setFontSize(7);
+      doc.setTextColor(138,137,144);doc.text(isoToDisplay(a.fecha)||'',M+2,y+4.3);
+      doc.setTextColor(220,219,212);doc.text(a.desc,M+22,y+4.3);
+      const detalle=a.moneda==='USD'?`U$D ${a.monto} × $${a.cotizacion}`:fmt(a.montoARS);
+      doc.setTextColor(138,137,144);doc.text(detalle,M+100,y+4.3);
+      doc.setTextColor(240,196,106);doc.setFont('helvetica','bold');
+      doc.text(fmt(a.montoARS),M+CW-2,y+4.3,{align:'right'});
+      y+=6.5;
+    });
+    checkY(8);
+    doc.setFillColor(14,14,16);doc.rect(M,y,CW,7,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(7);doc.setTextColor(138,137,144);
+    doc.text('TOTAL AHORRADO',M+2,y+4.8);
+    doc.setTextColor(240,196,106);doc.text(fmt(totalAhorroARS),M+CW-2,y+4.8,{align:'right'});
+    y+=9;
+  }
+
+  // ── FOOTER ──
   const pages=doc.internal.getNumberOfPages();
   for(let p=1;p<=pages;p++){
     doc.setPage(p);
-    doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(74,73,80);
-    doc.text('mis gastos — '+mesLabel,M,290);
-    doc.text('pág '+p+' de '+pages,W-M,290,{align:'right'});
+    doc.setFillColor(22,22,26);
+    doc.rect(0,285,W,12,'F');
+    doc.setFont('helvetica','normal');doc.setFontSize(6.5);doc.setTextColor(74,73,80);
+    doc.text('mis gastos — '+mesLabel,M,291);
+    doc.text('pág '+p+' de '+pages,W-M,291,{align:'right'});
   }
 
   doc.save('reporte-'+MONTHS[curMonth]+'-'+curYear+'.pdf');
